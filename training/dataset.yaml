@@ -1,0 +1,23 @@
+# PPE Detection Dataset Configuration
+# Compatible with Ultralytics YOLO format
+# Download dataset from Roboflow or Kaggle and place in data/ directory
+
+path: ../data/ppe_dataset  # root dataset directory
+train: images/train
+val: images/val
+test: images/test  # optional
+
+# Class names
+nc: 6
+names:
+  0: person
+  1: helmet
+  2: no_helmet
+  3: vest
+  4: no_vest
+  5: machinery
+
+# Suggested datasets:
+# - https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety
+# - https://www.kaggle.com/datasets/snehilsanyal/construction-site-safety-image-dataset-roboflow
+# - SH17: https://github.com/erfanMhi/SH17-Dataset

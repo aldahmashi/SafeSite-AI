@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+.env
+!.env.example
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# YOLO weights (large binary files)
+backend/weights/*.pt
+backend/weights/*.onnx
+backend/weights/*.engine
+!backend/weights/.gitkeep
+
+# User-uploaded and generated files
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/outputs/*
+!backend/outputs/.gitkeep
+backend/violation_frames/*
+!backend/violation_frames/.gitkeep
+backend/reports/*
+!backend/reports/.gitkeep
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/.env.local
+frontend/.env.production
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# Database
+*.db
+*.sqlite3
+postgres_data/
+
+# Jupyter
+.ipynb_checkpoints/
+training/notebooks/.ipynb_checkpoints/
+
+# Vector DB
+chroma_db/
+qdrant_data/
