@@ -10,6 +10,7 @@ from app.database import get_db
 from app.config import settings
 from app.models.video import Video, VideoStatus
 from app.schemas.video import VideoRead, VideoSummary
+from app.services.video_processor import process_video_task
 
 router = APIRouter(prefix="/api/videos", tags=["Videos"])
 
@@ -39,7 +40,7 @@ async def upload_video(
     db.commit()
     db.refresh(video)
 
-    # TODO: enqueue video_processor.process_video(video.id) as background task
+    background_tasks.add_task(process_video_task, video.id)
     return video
 
 

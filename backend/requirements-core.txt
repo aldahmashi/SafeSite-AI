@@ -1,6 +1,4 @@
-# Core packages needed to run the FastAPI server (Phase 1)
-# Install with: pip install -r requirements-core.txt
-
+# ── Phase 1: Web server + database ───────────────────────────────────────────
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
@@ -15,3 +13,14 @@ httpx==0.27.2
 reportlab==4.2.5
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+
+# ── Phase 2: Computer vision (install separately) ─────────────────────────────
+# Option A — ONNX inference (recommended, lightweight, no PyTorch needed):
+#   pip install onnxruntime opencv-python-headless
+#   pip install ultralytics --no-deps
+#   Place best.onnx at backend/weights/best.onnx
+#
+# Option B — PyTorch inference (supports ByteTrack, needs large download):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#   pip install ultralytics opencv-python-headless
+#   Place best.pt at backend/weights/best.pt
