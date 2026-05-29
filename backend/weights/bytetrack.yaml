@@ -1,0 +1,7 @@
+tracker_type: bytetrack
+track_high_thresh: 0.40   # aligned with detection_confidence=0.40
+track_low_thresh: 0.10    # recover briefly-hidden workers
+new_track_thresh: 0.55    # high bar for starting a new track ID
+track_buffer: 20          # keep lost tracks alive for ~0.7s at 30fps
+match_thresh: 0.70        # strict IoU match to reduce ID switches
+fuse_score: True

@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { Video, Incident, VideoSummary, DashboardStats } from "./types";
+import type { Video, Incident, VideoSummary, DashboardStats, Report, Stream, AnalyticsOverview } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -34,6 +34,11 @@ export const api = {
     });
   },
 
+  // Static URL for inline browser playback (supports HTTP Range / seeking)
+  annotatedVideoUrl: (outputPath: string) =>
+    `${BASE}/outputs/${outputPath.split(/[/\\]/).pop()}`,
+
+  // Download endpoint as fallback
   downloadAnnotatedVideo: (id: number) =>
     `${BASE}/api/videos/${id}/download`,
 
@@ -43,13 +48,39 @@ export const api = {
     limit?: number;
     violation_type?: string;
     risk_level?: string;
+    video_id?: number;
   }) => client.get<Incident[]>("/api/incidents", { params }),
 
   getIncident: (id: number) => client.get<Incident>(`/api/incidents/${id}`),
 
   // Reports
+  listReports: () => client.get<Report[]>("/api/reports"),
   generateReport: (videoId: number) =>
-    client.post(`/api/reports/generate/${videoId}`),
+    client.post<Report>(`/api/reports/generate/${videoId}`),
+  downloadReportUrl: (reportId: number) =>
+    `${BASE}/api/reports/${reportId}/download`,
+
+  // Streams
+  listStreams: () => client.get<Stream[]>("/api/streams"),
+  startStream: (url: string, name?: string) =>
+    client.post<Stream>("/api/streams/start", { url, name }),
+  stopStream: (streamId: string) =>
+    client.post(`/api/streams/stop/${streamId}`),
+  deleteStream: (streamId: string) =>
+    client.delete(`/api/streams/${streamId}`),
+  getStreamStatus: (streamId: string) =>
+    client.get<Stream>(`/api/streams/${streamId}/status`),
+
+  // Analytics
+  getAnalyticsOverview: () =>
+    client.get<AnalyticsOverview>("/api/analytics/overview"),
+
+  // AI Assistant
+  chatWithAssistant: (message: string, videoId?: number) =>
+    client.post<{ reply: string; session_id?: string }>("/api/assistant/chat", {
+      message,
+      video_id: videoId ?? null,
+    }),
 
   // Screenshot URL helper
   screenshotUrl: (path: string) =>

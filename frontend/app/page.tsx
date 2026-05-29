@@ -10,20 +10,45 @@ import {
   HardHat,
   Shirt,
 } from "lucide-react";
+import {
+  BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { StatCard } from "@/components/ui/StatCard";
+import { ChartCard } from "@/components/ui/ChartCard";
+import { IncidentCard } from "@/components/ui/IncidentCard";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { DataTable } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { api } from "@/lib/api";
-import type { DashboardStats, Video as VideoType } from "@/lib/types";
+import type { DashboardStats, Video as VideoType, Incident } from "@/lib/types";
 import { format } from "date-fns";
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const SCREENSHOT_BASE = `${BASE_URL}/violation_frames`;
+
+const VIOLATION_COLORS: Record<string, string> = {
+  "NO HELMET": "#f59e0b",
+  "NO VEST": "#3b82f6",
+  "HIGH RISK ZONE": "#ef4444",
+  "MACHINERY PROXIMITY RISK": "#8b5cf6",
+  "FALL RISK": "#ec4899",
+};
+
+const RISK_COLORS: Record<string, string> = {
+  LOW: "#22c55e",
+  MEDIUM: "#f59e0b",
+  HIGH: "#f97316",
+  CRITICAL: "#ef4444",
+};
 
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentVideos, setRecentVideos] = useState<VideoType[]>([]);
+  const [recentIncidents, setRecentIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +56,14 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const [statsData, videosRes] = await Promise.all([
+      const [statsData, videosRes, incidentsRes] = await Promise.all([
         api.getDashboardStats(),
         api.listVideos(0, 5),
+        api.listIncidents({ limit: 5 }),
       ]);
       setStats(statsData);
       setRecentVideos(videosRes.data);
+      setRecentIncidents(incidentsRes.data);
     } catch {
       setError("Failed to load dashboard data. Is the backend running?");
     } finally {
@@ -47,6 +74,30 @@ export default function DashboardPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Chart data derived from stats
+  const complianceChartData = stats
+    ? [
+        { name: "Helmet", compliance: stats.helmet_compliance_pct },
+        { name: "Vest", compliance: stats.vest_compliance_pct },
+      ]
+    : [];
+
+  const riskChartData =
+    stats && stats.total_incidents > 0
+      ? [
+          {
+            name: "High Risk",
+            value: stats.high_risk_incidents,
+            fill: RISK_COLORS.HIGH,
+          },
+          {
+            name: "Other",
+            value: Math.max(0, stats.total_incidents - stats.high_risk_incidents),
+            fill: "#334155",
+          },
+        ]
+      : [];
 
   const safeScoreColor = (score: number) => {
     if (score >= 80) return "green";
@@ -94,7 +145,7 @@ export default function DashboardPage() {
             <StatCard
               title="Helmet Compliance"
               value={`${stats.helmet_compliance_pct}%`}
-              subtitle="Workers with helmets"
+              subtitle="Workers with hard hats"
               icon={HardHat}
               accent="green"
             />
@@ -106,6 +157,79 @@ export default function DashboardPage() {
               accent="green"
             />
           </div>
+
+          {/* Charts row */}
+          {stats.total_incidents > 0 && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <ChartCard title="PPE Compliance" subtitle="Helmet and vest compliance rates">
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={complianceChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }}
+                      labelStyle={{ color: "#e2e8f0" }}
+                      formatter={(v: number) => [`${v}%`, "Compliance"]}
+                    />
+                    <Bar dataKey="compliance" radius={[4, 4, 0, 0]}>
+                      <Cell fill="#22c55e" />
+                      <Cell fill="#3b82f6" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Risk Breakdown" subtitle="High-risk vs other incidents">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={riskChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {riskChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }}
+                      labelStyle={{ color: "#e2e8f0" }}
+                      itemStyle={{ color: "#94a3b8" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+          )}
+
+          {/* Recent incidents */}
+          {recentIncidents.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-slate-200 font-semibold">Recent Incidents</h2>
+                <button
+                  onClick={() => router.push("/incidents")}
+                  className="text-amber-400 hover:text-amber-300 text-sm transition-colors"
+                >
+                  View all →
+                </button>
+              </div>
+              <div className="space-y-3">
+                {recentIncidents.map((incident) => (
+                  <IncidentCard
+                    key={incident.id}
+                    incident={incident}
+                    screenshotBase={SCREENSHOT_BASE}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Recent videos */}
           <div>

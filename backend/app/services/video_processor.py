@@ -133,13 +133,15 @@ class VideoProcessor:
         out_name    = f"annotated_{video_id}_{stem}.mp4"
         output_path = out_dir / out_name
 
+        # Write raw frames with mp4v; re-encode to H.264 after (see _reencode_h264)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
         # ── 5. Initialise CV services ─────────────────────────────────────────
         detector = PPEDetector(
             weights_path=settings.yolo_weights_path,
-            confidence=0.4,
+            confidence=settings.detection_confidence,
+            iou_threshold=settings.detection_iou,
             device="cpu",
         )
         try:
@@ -153,13 +155,21 @@ class VideoProcessor:
         tracker = WorkerTracker(
             cooldown_seconds=float(settings.violation_cooldown_seconds)
         )
-        engine = ViolationEngine(tracker=tracker, infer_from_absence=False)
+        engine = ViolationEngine(
+            tracker=tracker,
+            infer_from_absence=False,
+            min_person_area=settings.min_person_area,
+        )
 
         # ── 6. Frame loop ─────────────────────────────────────────────────────
         frame_skip      = max(1, settings.frame_skip)
         raw_idx         = 0     # every frame read
         processed_idx   = 0     # frames actually sent to YOLO
         total_violations = 0
+
+        # Persist last detections/events to skipped frames so boxes don't flicker
+        last_detections: list = []
+        last_events: list     = []
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -169,9 +179,14 @@ class VideoProcessor:
             raw_idx += 1
             timestamp = raw_idx / fps
 
-            # Pass non-sampled frames straight to the output video
+            # Skipped frames: draw last known boxes so annotations are stable
             if raw_idx % frame_skip != 0:
-                writer.write(frame)
+                annotated = frame.copy()
+                if last_detections or last_events:
+                    draw_detections(annotated, last_detections)
+                    draw_violations(annotated, last_events)
+                    draw_frame_overlay(annotated, raw_idx, timestamp, total_violations)
+                writer.write(annotated)
                 continue
 
             processed_idx += 1
@@ -194,7 +209,7 @@ class VideoProcessor:
             # ── Violation checks ──────────────────────────────────────────────
             events = engine.process_frame(raw_idx, timestamp, detections)
 
-            # ── Persist incidents ─────────────────────────────────────────────
+            # ── Persist incidents + fire alerts ──────────────────────────────
             for ev in events:
                 incident = self._save_incident(ev, video_id, db)
                 shot = self._save_screenshot(frame, ev, incident.id, vf_dir)
@@ -202,8 +217,11 @@ class VideoProcessor:
                     incident.screenshot_path = shot
                     db.commit()
                 total_violations += 1
+                _fire_alert(ev, video.filename)
 
             # ── Annotate and write ────────────────────────────────────────────
+            last_detections = detections
+            last_events     = events
             annotated = frame.copy()
             draw_detections(annotated, detections)
             draw_violations(annotated, events)
@@ -218,6 +236,7 @@ class VideoProcessor:
 
         cap.release()
         writer.release()
+        _reencode_h264(output_path)
 
         # ── 7. Final scoring ──────────────────────────────────────────────────
         incidents = (
@@ -341,6 +360,57 @@ class VideoProcessor:
 
 
 # ── utilities ─────────────────────────────────────────────────────────────────
+
+def _fire_alert(ev, video_filename: str) -> None:
+    """Send Telegram alert for HIGH/CRITICAL incidents (non-blocking)."""
+    if ev.risk_level not in ("HIGH", "CRITICAL"):
+        return
+    import asyncio
+    import threading
+    from app.services.alert_service import send_incident_alert
+
+    def _send():
+        try:
+            asyncio.run(send_incident_alert(
+                violation_type=ev.violation_type,
+                risk_level=ev.risk_level,
+                timestamp=ev.timestamp,
+                video_name=video_filename,
+                description=ev.description,
+            ))
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def _reencode_h264(output_path: Path) -> None:
+    """Re-encode the annotated video to H.264 so browsers can play it inline."""
+    temp_path = output_path.with_suffix(".tmp.mp4")
+    try:
+        import imageio_ffmpeg
+        import subprocess
+
+        output_path.rename(temp_path)
+        cmd = [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-i", str(temp_path),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(output_path),
+            "-y",
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        temp_path.unlink(missing_ok=True)
+        logger.info("Re-encoded to H.264: %s", output_path)
+    except Exception as exc:
+        logger.warning("H.264 re-encode failed (keeping mp4v): %s", exc)
+        if temp_path.exists() and not output_path.exists():
+            temp_path.rename(output_path)
+
 
 def _mark_failed(db, video_id: int, reason: str) -> None:
     logger.error("video_id=%s  FAILED: %s", video_id, reason)

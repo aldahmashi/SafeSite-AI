@@ -12,6 +12,7 @@ import {
   MessageSquare,
   ShieldCheck,
   X,
+  Radio,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/upload", label: "Upload Video", icon: Upload },
   { href: "/videos", label: "Videos", icon: Video },
+  { href: "/streams", label: "Live Streams", icon: Radio },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/analytics", label: "Analytics", icon: BarChart2 },
   { href: "/reports", label: "Reports", icon: FileText },
@@ -97,8 +99,8 @@ export function Sidebar({ open, onClose }: Props) {
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-[#1e293b]">
-          <p className="text-slate-600 text-xs">Phase 3 — Dashboard</p>
-          <p className="text-slate-700 text-xs mt-0.5">v0.3.0</p>
+          <p className="text-slate-600 text-xs">Phase 4 — Live Streams</p>
+          <p className="text-slate-700 text-xs mt-0.5">v0.4.0</p>
         </div>
       </aside>
     </>

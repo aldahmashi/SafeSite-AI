@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 
 class StreamStartRequest(BaseModel):
@@ -9,6 +10,23 @@ class StreamStartRequest(BaseModel):
 
 class StreamStatus(BaseModel):
     stream_id: str
-    status: str   # running | stopped | error
+    name: str
+    status: str          # running | stopped | error
     url: str
     incident_count: int
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+
+
+class StreamRead(BaseModel):
+    id: int
+    stream_id: str
+    name: str
+    url: str
+    status: str
+    incident_count: int
+    error_message: Optional[str] = None
+    started_at: datetime
+    stopped_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

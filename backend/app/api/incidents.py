@@ -15,9 +15,12 @@ def list_incidents(
     limit: int = 50,
     violation_type: str | None = None,
     risk_level: str | None = None,
+    video_id: int | None = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Incident)
+    if video_id is not None:
+        q = q.filter(Incident.video_id == video_id)
     if violation_type:
         q = q.filter(Incident.violation_type == violation_type.upper())
     if risk_level:

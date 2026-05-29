@@ -28,5 +28,5 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """Create all tables. Called on app startup."""
-    from app.models import video, incident, worker, report, policy_document  # noqa: F401
+    from app.models import video, incident, worker, report, policy_document, stream  # noqa: F401
     Base.metadata.create_all(bind=engine)

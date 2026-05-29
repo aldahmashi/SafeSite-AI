@@ -1,51 +1,113 @@
-from fastapi import APIRouter, HTTPException
-from app.schemas.stream import StreamStartRequest, StreamStatus
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+import uuid
+from datetime import datetime
+
+from app.database import get_db
+from app.models.stream import Stream, StreamStatus
+from app.schemas.stream import StreamStartRequest, StreamStatus as StreamStatusSchema, StreamRead
+from app.services.stream_processor import registry
 
 router = APIRouter(prefix="/api/streams", tags=["Streams"])
 
-# In-memory store for MVP; will be replaced with DB-backed state
-_active_streams: dict[str, dict] = {}
 
-
-@router.post("/start", response_model=StreamStatus, status_code=201)
-def start_stream(req: StreamStartRequest):
-    import uuid
+@router.post("/start", response_model=StreamStatusSchema, status_code=201)
+def start_stream(req: StreamStartRequest, db: Session = Depends(get_db)):
     stream_id = str(uuid.uuid4())
-    _active_streams[stream_id] = {
-        "url": req.url,
-        "name": req.name or req.url,
-        "status": "running",
-        "incident_count": 0,
-    }
-    # TODO: launch stream_processor.start_stream(stream_id, req.url) in background thread
-    return StreamStatus(
+    name = req.name or req.url
+
+    # Persist to DB
+    record = Stream(
         stream_id=stream_id,
+        name=name,
+        url=req.url,
+        status=StreamStatus.running,
+    )
+    db.add(record)
+    db.commit()
+
+    # Start background thread
+    session = registry.start(stream_id=stream_id, url=req.url, name=name)
+
+    return StreamStatusSchema(
+        stream_id=stream_id,
+        name=name,
         status="running",
         url=req.url,
         incident_count=0,
+        error_message=None,
+        started_at=record.started_at,
     )
 
 
-@router.post("/stop/{stream_id}")
-def stop_stream(stream_id: str):
-    if stream_id not in _active_streams:
+@router.post("/stop/{stream_id}", response_model=StreamStatusSchema)
+def stop_stream(stream_id: str, db: Session = Depends(get_db)):
+    record = db.query(Stream).filter(Stream.stream_id == stream_id).first()
+    if not record:
         raise HTTPException(status_code=404, detail="Stream not found")
-    _active_streams[stream_id]["status"] = "stopped"
-    # TODO: signal stream_processor.stop_stream(stream_id)
-    return {"stream_id": stream_id, "status": "stopped"}
+
+    # Signal thread
+    registry.stop(stream_id)
+
+    # Optimistically update DB
+    record.status = StreamStatus.stopped
+    record.stopped_at = datetime.utcnow()
+    db.commit()
+
+    return StreamStatusSchema(
+        stream_id=stream_id,
+        name=record.name,
+        status="stopped",
+        url=record.url,
+        incident_count=record.incident_count,
+        error_message=None,
+        started_at=record.started_at,
+    )
 
 
-@router.get("/{stream_id}/status", response_model=StreamStatus)
-def get_stream_status(stream_id: str):
-    s = _active_streams.get(stream_id)
-    if not s:
+@router.get("", response_model=List[StreamRead])
+def list_streams(db: Session = Depends(get_db)):
+    streams = db.query(Stream).order_by(Stream.started_at.desc()).all()
+    # Merge live incident counts from in-memory registry
+    result = []
+    for s in streams:
+        live = registry.get(s.stream_id)
+        if live:
+            s.incident_count = live.incident_count
+        result.append(s)
+    return result
+
+
+@router.get("/{stream_id}/status", response_model=StreamStatusSchema)
+def get_stream_status(stream_id: str, db: Session = Depends(get_db)):
+    record = db.query(Stream).filter(Stream.stream_id == stream_id).first()
+    if not record:
         raise HTTPException(status_code=404, detail="Stream not found")
-    return StreamStatus(stream_id=stream_id, **s)
+
+    # Merge live state
+    live = registry.get(stream_id)
+    status = live.status if live else record.status.value
+    count = live.incident_count if live else record.incident_count
+    error = live.error_message if live else record.error_message
+
+    return StreamStatusSchema(
+        stream_id=stream_id,
+        name=record.name,
+        status=status,
+        url=record.url,
+        incident_count=count,
+        error_message=error,
+        started_at=record.started_at,
+    )
 
 
-@router.get("/{stream_id}/incidents")
-def get_stream_incidents(stream_id: str):
-    if stream_id not in _active_streams:
+@router.delete("/{stream_id}", status_code=204)
+def delete_stream(stream_id: str, db: Session = Depends(get_db)):
+    record = db.query(Stream).filter(Stream.stream_id == stream_id).first()
+    if not record:
         raise HTTPException(status_code=404, detail="Stream not found")
-    # TODO: return incidents from DB filtered by stream session
-    return []
+    registry.stop(stream_id)
+    registry.remove(stream_id)
+    db.delete(record)
+    db.commit()

@@ -35,6 +35,8 @@ NO_HELMET_CLASSES = frozenset({
     "no_helmet", "no_hardhat", "no_hard_hat",
     "no helmet", "no hardhat", "without_helmet",
     "without helmet",
+    # Roboflow hyphenated forms (also covered by detector.py normalizer)
+    "no-hardhat", "no-helmet",
 })
 VEST_CLASSES = frozenset({
     "vest", "safety_vest", "safety-vest", "safety vest",
@@ -42,6 +44,8 @@ VEST_CLASSES = frozenset({
 NO_VEST_CLASSES = frozenset({
     "no_vest", "no_safety_vest", "no safety vest",
     "without_vest", "without vest",
+    # Roboflow forms
+    "no-safety vest", "no-safety-vest",
 })
 MACHINERY_CLASSES = frozenset({
     "machinery", "machine", "vehicle",
@@ -94,15 +98,20 @@ class ViolationEngine:
                               has no helmet/vest associated AND the loaded
                               model includes those classes. When False (default),
                               only flag when an explicit no-ppe class is detected.
+        min_person_area:      Ignore person boxes smaller than this area (px²).
+                              Filters out tiny far-away persons where PPE
+                              cannot be reliably assessed. Default 4000.
     """
 
     def __init__(
         self,
         tracker: WorkerTracker,
         infer_from_absence: bool = False,
+        min_person_area: int = 4000,
     ) -> None:
         self.tracker = tracker
         self.infer_from_absence = infer_from_absence
+        self.min_person_area = min_person_area
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -118,7 +127,8 @@ class ViolationEngine:
         Returns only ViolationEvents that passed the cooldown gate —
         safe to persist to DB directly.
         """
-        persons   = _filter(detections, PERSON_CLASSES)
+        all_persons = _filter(detections, PERSON_CLASSES)
+        persons = [p for p in all_persons if _area(p["bbox_xyxy"]) >= self.min_person_area]
         helmets   = _filter(detections, HELMET_CLASSES)
         no_helmets = _filter(detections, NO_HELMET_CLASSES)
         vests     = _filter(detections, VEST_CLASSES)
@@ -259,6 +269,11 @@ def _center(bbox: list[int]) -> tuple[int, int]:
     return (x1 + x2) // 2, (y1 + y2) // 2
 
 
+def _area(bbox: list[int]) -> int:
+    x1, y1, x2, y2 = bbox
+    return max(0, x2 - x1) * max(0, y2 - y1)
+
+
 def _associate_ppe_with_persons(
     persons: list[dict],
     ppe_boxes: list[dict],
@@ -267,9 +282,12 @@ def _associate_ppe_with_persons(
     For each PPE detection, find the person whose bounding box contains
     the PPE center point.
 
-    When a PPE center falls inside multiple person boxes (overlapping
-    people), assign it to the person with the smallest box area
-    (most specific / nearest person).
+    The person box is expanded by 15% on each side before testing so that
+    head-level detections (no_helmet) that sit near the top edge of the
+    person box are still captured.
+
+    When a PPE center falls inside multiple expanded person boxes, assign
+    it to the person with the smallest original box area (nearest person).
 
     Returns {person_index: [matching_ppe_detections]}.
     """
@@ -282,8 +300,10 @@ def _associate_ppe_with_persons(
 
         for i, person in enumerate(persons):
             px1, py1, px2, py2 = person["bbox_xyxy"]
-            if px1 <= cx <= px2 and py1 <= cy <= py2:
-                area = (px2 - px1) * (py2 - py1)
+            pw, ph = px2 - px1, py2 - py1
+            pad_x, pad_y = int(pw * 0.15), int(ph * 0.15)
+            if (px1 - pad_x) <= cx <= (px2 + pad_x) and (py1 - pad_y) <= cy <= (py2 + pad_y):
+                area = pw * ph
                 if area < best_area:
                     best_area = area
                     best_idx = i

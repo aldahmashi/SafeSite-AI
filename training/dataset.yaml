@@ -1,23 +1,56 @@
-# PPE Detection Dataset Configuration
-# Compatible with Ultralytics YOLO format
-# Download dataset from Roboflow or Kaggle and place in data/ directory
+# ──────────────────────────────────────────────────────────────────────────────
+# SafeSite AI — PPE Detection Dataset Configuration
+# Compatible with Ultralytics YOLO format (YOLOv8 / YOLO11)
+#
+# Dataset: Roboflow "Construction Site Safety" (v28)
+# URL:     https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety
+# Size:    ~10,400 images — train/val/test split
+# License: CC BY 4.0
+#
+# How classes map to SafeSite AI violation types:
+#   NO-Hardhat  (id=2) → ViolationEngine: NO_HELMET  (HIGH risk)
+#   NO-Safety Vest (id=4) → ViolationEngine: NO_VEST (MEDIUM risk)
+#   Person      (id=5) → tracked as workers
+#   Hardhat     (id=0) → confirms PPE compliance
+#   Safety Vest (id=7) → confirms PPE compliance
+#   machinery / vehicle → proximity risk zone (future)
+#
+# NOTE: Class names are normalised by PPEDetector.normalize_class() so that
+#       hyphenated Roboflow names map correctly to the ViolationEngine frozensets.
+# ──────────────────────────────────────────────────────────────────────────────
 
-path: ../data/ppe_dataset  # root dataset directory
+path: ../data/ppe_dataset   # root dataset dir  (relative to this file)
 train: images/train
-val: images/val
-test: images/test  # optional
+val:   images/val
+test:  images/test          # optional
 
-# Class names
-nc: 6
+# 10 classes — Roboflow Construction Site Safety v28
+nc: 10
 names:
-  0: person
-  1: helmet
-  2: no_helmet
-  3: vest
-  4: no_vest
-  5: machinery
+  0: Hardhat          # → HELMET_CLASSES     (compliance, green box)
+  1: Mask             # → ignored
+  2: NO-Hardhat       # → NO_HELMET_CLASSES  (violation, red box) ← KEY
+  3: NO-Mask          # → ignored
+  4: NO-Safety Vest   # → NO_VEST_CLASSES    (violation, red box) ← KEY
+  5: Person           # → PERSON_CLASSES     (worker, blue box)
+  6: Safety Cone      # → ignored
+  7: Safety Vest      # → VEST_CLASSES       (compliance, green box)
+  8: machinery        # → MACHINERY_CLASSES
+  9: vehicle          # → MACHINERY_CLASSES
 
-# Suggested datasets:
-# - https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety
-# - https://www.kaggle.com/datasets/snehilsanyal/construction-site-safety-image-dataset-roboflow
-# - SH17: https://github.com/erfanMhi/SH17-Dataset
+# ── Alternative datasets ───────────────────────────────────────────────────────
+# If you use a different dataset, adjust `nc` and `names` to match, and ensure
+# detector.py's _NORMALIZE_CLASS dict maps your names to canonical names.
+#
+# SH17 Dataset (17 classes):
+#   https://github.com/erfanMhi/SH17-Dataset
+#
+# Custom 6-class (original SafeSite schema):
+#   nc: 6
+#   names:
+#     0: person
+#     1: helmet
+#     2: no_helmet
+#     3: vest
+#     4: no_vest
+#     5: machinery

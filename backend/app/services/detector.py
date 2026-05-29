@@ -31,26 +31,61 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# ── Class name normalizer ──────────────────────────────────────────────────────
+# Maps raw dataset class names (lower-cased) → canonical names the ViolationEngine
+# frozensets recognise.  Needed because the Roboflow Construction Site Safety
+# dataset uses hyphens ("NO-Hardhat") while our engine uses underscores.
+_NORMALIZE_CLASS: dict[str, str] = {
+    # Roboflow hyphenated → underscore canonical
+    "no-hardhat":      "no_hardhat",
+    "no-helmet":       "no_helmet",
+    "no-safety vest":  "no_vest",
+    "no-safety-vest":  "no_vest",
+    "no-vest":         "no_vest",
+    # spaced → underscore
+    "safety vest":     "safety_vest",
+    "safety-vest":     "safety_vest",
+    "hard hat":        "hardhat",
+    "hard_hat":        "hardhat",
+    # human-readable → canonical
+    "worker":          "person",
+}
+
+
+def normalize_class(raw: str) -> str:
+    """Return the canonical class name for a raw YOLO detection class."""
+    lower = raw.lower()
+    return _NORMALIZE_CLASS.get(lower, lower)
+
+
 # ── BGR annotation colours ────────────────────────────────────────────────────
 CLASS_COLORS: dict[str, tuple[int, int, int]] = {
-    "person":          (30,  144, 255),
-    "worker":          (30,  144, 255),
-    "helmet":          (0,   200,   0),
-    "hardhat":         (0,   200,   0),
-    "hard_hat":        (0,   200,   0),
-    "no_helmet":       (0,     0, 220),
-    "no_hardhat":      (0,     0, 220),
-    "vest":            (0,   200,   0),
-    "safety_vest":     (0,   200,   0),
-    "no_vest":         (0,     0, 220),
-    "no_safety_vest":  (0,     0, 220),
-    "machinery":       (180,   0, 220),
+    # persons
+    "person":           (30,  144, 255),
+    # helmets / hard hats
+    "helmet":           (0,   200,   0),
+    "hardhat":          (0,   200,   0),
+    # violations
+    "no_helmet":        (0,     0, 220),
+    "no_hardhat":       (0,     0, 220),
+    # vests
+    "vest":             (0,   200,   0),
+    "safety_vest":      (0,   200,   0),
+    # vest violations
+    "no_vest":          (0,     0, 220),
+    "no_safety_vest":   (0,     0, 220),
+    # other
+    "mask":             (0,   180, 180),
+    "no_mask":          (0,     0, 220),
+    "safety_cone":      (255, 165,   0),
+    "machinery":        (180,   0, 220),
+    "vehicle":          (180,   0, 220),
 }
 _DEFAULT_COLOR: tuple[int, int, int] = (160, 160, 160)
 
 
 def color_for(class_name: str) -> tuple[int, int, int]:
-    return CLASS_COLORS.get(class_name.lower(), _DEFAULT_COLOR)
+    return CLASS_COLORS.get(normalize_class(class_name), _DEFAULT_COLOR)
 
 
 # ── detector ──────────────────────────────────────────────────────────────────
@@ -67,10 +102,12 @@ class PPEDetector:
         self,
         weights_path: str,
         confidence: float = 0.4,
+        iou_threshold: float = 0.45,
         device: str = "cpu",
     ) -> None:
         self.weights_path = Path(weights_path)
         self.confidence = confidence
+        self.iou_threshold = iou_threshold
         self.device = device
         self._backend: str = ""       # "onnx" | "torch"
         self._model: Any = None
@@ -249,9 +286,10 @@ class PPEDetector:
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
 
+            raw_name = self._class_names.get(cls_id, str(cls_id))
             detections.append(
                 {
-                    "class_name": self._class_names.get(cls_id, str(cls_id)),
+                    "class_name": normalize_class(raw_name),
                     "confidence": round(conf, 4),
                     "bbox_xyxy":  [x1, y1, x2, y2],
                     "track_id":   None,
@@ -263,17 +301,26 @@ class PPEDetector:
 
     def _infer_torch(self, frame: Any, track: bool) -> list[dict]:
         if track:
+            # Use custom tracker config for stable construction-site tracking
+            _tracker_cfg = str(self.weights_path.parent / "bytetrack.yaml")
+            if not Path(_tracker_cfg).exists():
+                _tracker_cfg = "bytetrack.yaml"
             results = self._model.track(
                 frame,
                 conf=self.confidence,
+                iou=self.iou_threshold,
                 persist=True,
-                tracker="bytetrack.yaml",
+                tracker=_tracker_cfg,
                 verbose=False,
                 device=self.device,
             )
         else:
             results = self._model(
-                frame, conf=self.confidence, verbose=False, device=self.device
+                frame,
+                conf=self.confidence,
+                iou=self.iou_threshold,
+                verbose=False,
+                device=self.device,
             )
 
         result = results[0]
@@ -291,9 +338,10 @@ class PPEDetector:
                 if ids is not None and i < len(ids) and ids[i] is not None
                 else None
             )
+            raw_name = names.get(cls_id, str(cls_id))
             detections.append(
                 {
-                    "class_name": names.get(cls_id, str(cls_id)),
+                    "class_name": normalize_class(raw_name),
                     "confidence": round(float(box.conf[0]), 4),
                     "bbox_xyxy":  [x1, y1, x2, y2],
                     "track_id":   tid,

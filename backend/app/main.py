@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.database import init_db
-from app.api import videos, streams, incidents, reports, policies, assistant
+from app.api import videos, streams, incidents, reports, policies, assistant, analytics
 
 
 @asynccontextmanager
@@ -36,6 +36,11 @@ _vf_dir = Path(settings.violation_frames_dir)
 _vf_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/violation_frames", StaticFiles(directory=str(_vf_dir)), name="violation_frames")
 
+# Serve annotated videos as static files (supports HTTP Range for browser seeking)
+_out_dir = Path(settings.output_dir)
+_out_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/outputs", StaticFiles(directory=str(_out_dir)), name="outputs")
+
 # Register routers
 app.include_router(videos.router)
 app.include_router(streams.router)
@@ -43,6 +48,7 @@ app.include_router(incidents.router)
 app.include_router(reports.router)
 app.include_router(policies.router)
 app.include_router(assistant.router)
+app.include_router(analytics.router)
 
 
 @app.get("/health", tags=["Health"])

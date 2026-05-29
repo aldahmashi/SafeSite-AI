@@ -14,11 +14,12 @@ pydantic-settings==2.6.1
 python-dotenv==1.0.1
 
 # ─── Computer Vision ──────────────────────────────────────────────────────────
-# Phase 2: install when YOLO is implemented
 ultralytics>=8.3.0
 opencv-python-headless>=4.10.0.84
 numpy>=2.0.0
 Pillow>=10.3.0
+lap>=0.5.12
+imageio-ffmpeg>=0.5.1
 
 # ─── AI / LLM ─────────────────────────────────────────────────────────────────
 # Phase 4: install when RAG/assistant is implemented
